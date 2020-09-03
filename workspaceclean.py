@@ -4,56 +4,67 @@ import csv
 import re
 
 
-# read in file
-filepath = f"VZ_DWK_MonQuarReport_Updated - VZ Global - (verizontelecomglobal) - Jul 2, 2020.csv"
-print(f"processing file: {filepath}")
-
-
-class WorkspaceClean():
-
+class WorkspaceRead():
     def __init__(self, file):
         self.file = file
 
     def readtables(self):
-        # list of all table start demarcations from Adobe Analytics Workspace ouput file
+        # list of all panel and table start demarcations from Adobe Analytics Workspace ouput file
+        panelnumbers = []
         tablenumbers = []
 
         # opens file and reads it line by line
-        with open(self.file) as f:
+        with open(filepath) as f:
             data = csv.reader(f, delimiter=",")
 
             # loops through all lines of file and stores index of lines
             # demarking table title start to "tablenumbers" list
             for ix, row in enumerate(data):
-                if "##############################################" in row:
-                    tablenumbers.append(ix)
+                if len(row) > 0:
+                    if "#=================================================================" in row[0]:
+                        panelnumbers.append(ix + 1)
+                    if "##############################################" in row[0]:
+                        tablenumbers.append(ix)
 
         # dictionary to store table name and table as pandas dataframe
         tablesdict = {}
         # cycles through every other tablenumbers list element as each table title is
         # preceeded and followed by the line of number hashes "#"
+        panelstarts = panelnumbers[::2]
         tablestarts = tablenumbers[1::2]
-        with open(self.file) as f:
+
+        allrows = panelstarts + tablestarts
+        allrows.sort()
+        with open(filepath) as f:
             alllines = f.readlines()
-            for ix, tablerow in tqdm(enumerate(tablestarts)):
+            for ix, tablerow in enumerate(allrows):
+                if tablerow in panelstarts:
+                    panelname = re.sub(r"# |\n", "", alllines[tablerow])
 
-                # each table name beings with a hash and is between two rows of hashes
-                tablename = alllines[tablerow - 1].replace("# ", "").strip()
-
-                # each table length is determined by the start of the next table and is plugged into the nrows param,
-                # since the final table does not have a "next table" we need a special case for it stated in the "if"
-                if ix == len(tablestarts) - 1:
-                    df = pd.read_csv(self.file, header=tablerow + 1, skip_blank_lines=False)
                 else:
-                    df = pd.read_csv(self.file, header=tablerow + 1, nrows=tablestarts[ix + 1] - tablestarts[ix] - 3,
-                                     skip_blank_lines=False)
+                    # each table name beings with a hash and is between two rows of hashes
+                    tablename = alllines[tablerow - 1].replace("# ", "").strip()
+
+                    # each table length is determined by the start of the next table and is plugged into the nrows param,
+                    # since the final table does not have a "next table" we need a special case for it stated in the "if"
+                    if ix == len(allrows) - 1:
+                        df = pd.read_csv(filepath, header=tablerow + 1, skip_blank_lines=False)
+                    else:
+                        df = pd.read_csv(filepath, header=tablerow + 1, nrows=allrows[ix + 1] - allrows[ix] - 3,
+                                         skip_blank_lines=False)
 
                 # fills all empty rows in the index cols for future cleaning purposes
-                tablesdict[tablename] = df.fillna(method='bfill', axis=0).dropna()
+                tablesdict[panelname] = {tablename: df.fillna(method='bfill', axis=0).dropna()}
         return tablesdict
 
-    def tablefix(self, tablesdict):
-        for name, df in tablesdict.items():
+
+class WorkspaceClean():
+
+    def __init__(self, tablesdict):
+        self.tables = tablesdict
+
+    def tablefix(self):
+        for (tablename, df) in self.tables.items():
             # each table has "index" cols and "header" cols which data is cut by
             # this for loop determines where those "index" and "header" cols end, or where the data begins
             # and saves the i, j (row, col) to use later when creating headers and cleaning the tables
@@ -133,98 +144,11 @@ class WorkspaceClean():
             # we save the header row end and "index" col end as metadata to carry with us for future cleaning
             dfmetadata = dict(headerend=headerend, indexend=indexend)
 
-        return df, dfmetadata
+            # overwrite the unformatted tables in tabledicts with newly cleaned tables
+            # in a list with relevant metadata
+            self.tables[tablename] = [df, dfmetadata]
+
+        return self.tables
 
 
-def dwktablefix(df, dfmetadata):
-    indexend = dfmetadata["indexend"]
 
-    # tagging issues can lead to drops in tagging information passed to some rows resulting in [invalidrsid]
-    # this is removed and replaced with verizon dwk site tagging structure
-    df.iloc[:, 0] = df.iloc[:, 0].apply(lambda row: row.replace(r"[invalidrsid]| ", r"esp| "))
-    df.iloc[:, 0] = df.iloc[:, 0].apply(lambda row: r"esp| " + row if r"esp|" not in row else row)
-    df.iloc[:, 0] = df.iloc[:, 0].apply(lambda row: row.replace(r"|", r"| ").replace("  ", " "))
-
-    # this cleaning creates redundancies in the "index" col so we group them together to consolidate
-    groupercols = [col for col in df.columns[:indexend + 1]]
-
-    # reset the index and rename the index col to the name of the dataframe
-    df = df.groupby(groupercols).sum().reset_index()
-    df.index.name = name
-
-    return df
-
-
-def dwktoppagesclean(df, metadata):
-    df.iloc[:, 0] = df.iloc[:, 0].apply(lambda row: re.sub(r"search.(.*)", "search results", row))
-    df = dwktablefix(df, metadata)
-    return df
-
-
-def dwksearchclean(df):
-    searchmappath = "VZ_DWK_SearchTermMap.xlsx"
-    searchmap = pd.read_excel(searchmappath, encoding='latin1')
-
-    if "querycleaned" in df.columns:
-        df.drop(columns=["searchquery", "querycleaned", "sitesection"], inplace=True)
-    droprows = df[~df.iloc[:, 0].str.contains("search")].index
-    df = df.drop(droprows)
-
-    df['searchquery'] = df.iloc[:, 0].apply(lambda row: re.sub(r"(.*\| )", "", row))
-    df.searchquery = df.searchquery.apply(lambda row: "search results|" if row == '' else row)
-
-    df = df.merge(searchmap, how='left', on="searchquery")
-
-    missingqueries = df[df.querycleaned.isna()][["searchquery", "querycleaned", "sitesection"]]
-
-    if len(missingqueries) > 0:
-        searchmap = searchmap.append(missingqueries, ignore_index=True, sort=False)
-        searchmap.to_excel(searchmappath, index=False, encoding='latin1')
-        subprocess.Popen(searchmappath, shell=True)
-        updatemap = input("please update search map and type 'done' when done.")
-        if updatemap == 'done':
-            df = dwksearchclean(df)
-
-    sectionpivotdf = df.groupby("sitesection")[[col for col in df.columns if "Visits" in col]] \
-        .sum().sort_values(by="Visits Total", ascending=False)
-
-    termpivotdf = pd.DataFrame(df.groupby(["sitesection", "querycleaned"])[df.columns[-6:-4]].sum())
-    termpivotdf["Total"] = termpivotdf.sum(axis=1)
-    termpivotdf = termpivotdf.sort_values(by="Total", ascending=False).head(20)
-
-    return df, sectionpivotdf, termpivotdf
-
-
-tables = readintables(filepath)
-tablesmeta = {}
-searchpivots = {}
-
-for (name, table) in tqdm(tables.items()):
-    tables[name], meta = tablefix(table, name)
-    tablesmeta[name] = meta
-    tables[name] = dwktablefix(tables[name], meta)
-    if "Page" in name:
-        tables[name] = dwktoppagesclean(tables[name], meta)
-    if "Searches" in name:
-        tables[name], sectionpivot, termpivot = dwksearchclean(tables[name])
-        searchpivots[f"{name} - sectionpivot"] = sectionpivot
-        searchpivots[f"{name} - termpivot"] = termpivot
-tables.update(searchpivots)
-
-monthly = {name: table for (name, table) in tables.items() if " - Monthly" in name}
-quarterlyall = {name: table for (name, table) in tables.items() if " - All Visitors" in name}
-quarterlynvr = {name: table for (name, table) in tables.items() if (" - Visitor Type" in name) or (" Visits" in name)}
-tablegroups = {"monthly": monthly, "quarterlyall": quarterlyall, "quarterlynvr": quarterlynvr}
-
-
-savepath = r"C:\Users\Daniel.Keidar\Documents\Clients\Verizon\VS_DWK_Quarterly\VZ_DWK_MonQuarReportCleaned.xlsx"
-writer = pd.ExcelWriter(savepath)
-
-for (tablegroup, group) in tablegroups.items():
-    startrow = 1
-    for (name, table) in group.items():
-        table.to_excel(writer, sheet_name=tablegroup, startcol=1, startrow=startrow)
-        startrow += len(table) + 4
-
-writer.save()
-writer.close()
