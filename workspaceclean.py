@@ -4,7 +4,7 @@ import csv
 import re
 
 
-class WorkspaceRead():
+class WorkspaceRead:
     def __init__(self, file):
         self.file = file
 
@@ -15,7 +15,7 @@ class WorkspaceRead():
 
         # opens file and reads it line by line
         with open(filepath) as f:
-            data = csv.reader(f, delimiter=",")
+            data = csv.reader(f, delimiter=",")x
 
             # loops through all lines of file and stores index of lines
             # demarking table title start to "tablenumbers" list
@@ -58,7 +58,7 @@ class WorkspaceRead():
         return tablesdict
 
 
-class WorkspaceClean():
+class WorkspaceClean:
 
     def __init__(self, tablesdict):
         self.tables = tablesdict
