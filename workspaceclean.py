@@ -5,8 +5,18 @@ import re
 
 
 class Workspace:
-    def __init__(self, file):
-        self.file = file
+
+    def __init__(self, filepath, process="clean"):
+        processlist = ["read", "clean"]
+        if process not in processlist:
+            raise Exception("""prcoess input not valid, please choose from the following 
+                                'read' will only read in the workspace fild
+                                'clean' will read in and clean the tables""")
+        self.file = filepath
+        if process == "read":
+            self.tables = self.read_tables()
+        if process == "clean":
+            self.tables = self.clean_table()
 
     def read_tables(self):
         # list of all panel and table start demarcations from Adobe Analytics Workspace ouput file
@@ -40,7 +50,7 @@ class Workspace:
             for ix, tablerow in enumerate(allrows):
                 if tablerow in panelstarts:
                     panelname = re.sub(r"# |\n", "", alllines[tablerow])
-
+                    tablesdict.update({panelname: {}})
                 else:
                     # each table name beings with a hash and is between two rows of hashes
                     tablename = alllines[tablerow - 1].replace("# ", "").strip()
@@ -54,8 +64,8 @@ class Workspace:
                         df = pd.read_csv(self.file, header=tablerow + 1, nrows=allrows[ix + 1] - allrows[ix] - 3,
                                          skip_blank_lines=False)
 
-                # fills all empty rows in the index cols for future cleaning purposes
-                tablesdict[panelname] = {tablename: df.fillna(method='bfill', axis=0).dropna()}
+                    # fills all empty rows in the index cols for future cleaning purposes
+                    tablesdict[panelname].update({tablename: df.fillna(method='bfill', axis=0).dropna()})
         return tablesdict
 
     def clean_table(self):
@@ -102,7 +112,7 @@ class Workspace:
 
                 # if there are two header rows then we combine both with a " -- " for future cleaning
                 if headerend == 1:
-                    df.columns = (df.columns + " -- " + df.iloc[0])
+                    df.columns = (df.columns + [" -- "] + df.iloc[0])
 
                 # same goes for 3 header rows
                 # based off my experience with Adobe Analytics,
@@ -110,7 +120,7 @@ class Workspace:
                 # if your table has more than 3 header rows then recreate this elif for headerend = 3
                 # and follow the same structure
                 elif headerend == 2:
-                    df.columns = (df.columns + ' -- ' + df.iloc[0] + " -- " + df.iloc[1])
+                    df.columns = (df.columns + [' -- '] + df.iloc[0] + [" -- "] + df.iloc[1])
 
                 # we then remove the "Unnamed" column name from any columns that may have that string in them
                 regexstr = r"\.\d+|(Unnamed: \d -- )"
@@ -137,14 +147,16 @@ class Workspace:
 
                 # the name of the table that is pulled from the Adobe Analytics output file structure
                 # and is inserted as the index col name for user use upon excel output
+                df.reset_index(inplace=True, drop=True)
                 df.index.name = tablename
+
 
                 # we save the header row end and "index" col end as metadata to carry with us for future cleaning
                 dfmetadata = dict(headerend=headerend, indexend=indexend)
 
                 # overwrite the unformatted tables in tabledicts with newly cleaned tables
                 # in a list with relevant metadata
-                tablesdict[panelname] = {tablename: [df, dfmetadata]}
+                tablesdict[panelname].update({tablename: [df, dfmetadata]})
 
         return tablesdict
 
@@ -154,7 +166,10 @@ class Workspace:
         writer = pd.ExcelWriter(savepath)
 
         # loop through the nested dictionary of panels to create each worksheet
-        for (panelname, panel) in self.items():
+        for (panelname, panel) in self.tables.items():
+            panelname = panelname.replace(" ", "").replace("-", "")
+            if len(panelname) > 31:
+                panelname = panelname[:31]
             startrow = 1
             # loop through the panel to append each table to the worksheet
             # each table has a length which will mark where the next table should be placed with 4 rows as buffer
@@ -166,4 +181,5 @@ class Workspace:
 
         writer.save()
         writer.close()
+
         print("Export to Excel complete")
