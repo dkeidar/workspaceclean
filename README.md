@@ -9,11 +9,11 @@ And so began this package.
 
 workspace clean will take this 
 
-![before workspaceclean is applied] (https://github.com/dkeidar/workspaceclean/blob/master/beforeworkspaceclean.png?raw=True)
+<img width="1428" alt="beforeworkspaceclean" src="https://github.com/dkeidar/workspaceclean/blob/master/beforeworkspaceclean.png?raw=True">
 
 and output give you back a workbook that looks like this
 
-![after workspaceclean is applied] (https://github.com/dkeidar/workspaceclean/blob/master/afterworkspaceclean.png?raw=True)
+<img width="1428" alt="beforeworkspaceclean" src="https://github.com/dkeidar/workspaceclean/blob/master/afterworkspaceclean.png?raw=True">
 
 ### How to Use
 #### Simple (without manipulation)
