@@ -149,20 +149,21 @@ class Workspace:
         return tablesdict
 
     def export(self, savepath):
+        # initialize ExcelWriter to save all panels and tables to a new workbook
+        # with all panels creating new worksheets and each corresponding table appending to the end
         writer = pd.ExcelWriter(savepath)
 
+        # loop through the nested dictionary of panels to create each worksheet
         for (panelname, panel) in self.items():
             startrow = 1
+            # loop through the panel to append each table to the worksheet
+            # each table has a length which will mark where the next table should be placed with 4 rows as buffer
+            # the nested dictionary contains the table and metadata of table which helps with manipulation
+            # but is unneeded for export
             for (name, table) in panel.items():
-                table.to_excel(writer, sheet_name=panelname, startcol=1, startrow=startrow)
-                startrow += len(table) + 4
+                table[0].to_excel(writer, sheet_name=panelname, startcol=1, startrow=startrow)
+                startrow += len(table[0]) + 4
 
         writer.save()
         writer.close()
         print("Export to Excel complete")
-
-
-
-
-ws = Workspace.clean_table(filepath)
-ws.export(r"~\Downloads\test.xlsx")
