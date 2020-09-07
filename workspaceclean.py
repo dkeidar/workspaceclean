@@ -1,3 +1,11 @@
+"""
+Created on 9/1/20
+
+@author: danielkeidar
+
+Note:
+"""
+
 # dependencies
 import pandas as pd
 import csv
